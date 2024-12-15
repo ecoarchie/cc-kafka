@@ -31,16 +31,19 @@ func main() {
 		os.Exit(1)
 	}
 	buff := bufio.NewReader(conn)
-	sizeBuff := make([]byte, 4)
-	buff.Read(sizeBuff)
-	var s int32
-	binary.Read(buff, binary.BigEndian, &s)
-	fmt.Printf("size is %d\n", s)
+	var messageSize int32
+	binary.Read(buff, binary.BigEndian, &messageSize)
+	fmt.Printf("message size is %d\n", messageSize)
+
+	buff.Discard(4)
+	var correlationID int32
+	binary.Read(buff, binary.BigEndian, &correlationID)
+	fmt.Printf("correlationID is %d\n", correlationID)
 
 	mesSizeRepl := make([]byte, 4)
 	binary.BigEndian.PutUint32(mesSizeRepl, uint32(0))
 
 	correlationReply := make([]byte, 4)
-	binary.BigEndian.PutUint32(correlationReply, uint32(7))
+	binary.BigEndian.PutUint32(correlationReply, uint32(correlationID))
 	conn.Write(append(mesSizeRepl, correlationReply...))
 }
