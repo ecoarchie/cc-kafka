@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+
+	"github.com/codecrafters-io/kafka-starter-go/api"
 )
 
 func main() {
@@ -47,59 +49,17 @@ func handleConnection(conn net.Conn) {
 	binary.Read(buff, binary.BigEndian, &correlationID)
 	fmt.Printf("correlationID is %d\n", correlationID)
 
-	// reply
-	// var body []byte
-	body := new(bytes.Buffer)
-	if requestApiVersion != 4 {
-		// body = binary.BigEndian.AppendUint16(body, uint16(35))
-		binary.Write(body, binary.BigEndian, int16(35))
-	} else {
-		fmt.Println("error code is zero")
-		// body = binary.BigEndian.AppendUint16(body, uint16(0))
-		binary.Write(body, binary.BigEndian, int16(0))
+	keys := []api.ApiKey{}
+	apiKey := api.ApiKey{
+		Key:        requestApiKey,
+		MinVersion: 0,
+		MaxVersion: 4,
+		TagBuffer:  []byte{},
 	}
+	keys = append(keys, apiKey)
+	response := api.NewApiKeyResponse(requestApiKey, requestApiVersion, correlationID, keys)
 
-	if requestApiKey == 18 {
-		fmt.Println("request api key is 18")
-		numOfKeys := 2
-		body.Write(encodeUnsignedVarInt(uint32(numOfKeys)))
-		// body = binary.BigEndian.AppendUint32(body, uint32(numOfKeys))
-		apiKey := requestApiKey
-		binary.Write(body, binary.BigEndian, apiKey)
-		// body = binary.BigEndian.AppendUint16(body, uint16(apiKey))
-		minVersion := int16(1)
-		binary.Write(body, binary.BigEndian, minVersion)
-		// body = binary.BigEndian.AppendUint16(body, uint16(minVersion))
-		maxVersion := int16(4)
-		binary.Write(body, binary.BigEndian, maxVersion)
-		// body = binary.BigEndian.AppendUint16(body, uint16(maxVersion))
-
-		tagFieldBodyLength := 0
-		body.Write(encodeUnsignedVarInt(uint32(tagFieldBodyLength)))
-		// body = append(body, encodeUnsignedVarInt(uint32(tagFieldBodyLength))...)
-
-		var throttleTime int32 = 0
-		binary.Write(body, binary.BigEndian, throttleTime)
-		// body = binary.BigEndian.AppendUint32(body, uint32(throttleTime))
-		tagFieldLength := 0
-		body.Write(encodeUnsignedVarInt(uint32(tagFieldLength)))
-		// body = append(body, encodeUnsignedVarInt(uint32(tagFieldLength))...)
-
-	}
-	// mes := NewMessage(requestApiKey, requestApiVersion, correlationID, body)
-	mes := NewMessage(requestApiKey, requestApiVersion, correlationID, body.Bytes())
-	fmt.Printf("message: %+v\n", mes)
-	reply := mes.Marshal()
-	fmt.Printf("marshaled message: %+v\n", reply)
-	// var reply []byte
-	// reply = binary.BigEndian.AppendUint32(reply, uint32(0)) // hardcode 0 size reply
-	// reply = binary.BigEndian.AppendUint32(reply, uint32(correlationID))
-
-	// if requestApiVersion != 4 {
-	// 	reply = binary.BigEndian.AppendUint16(reply, uint16(35))
-	// }
-
-	conn.Write(reply)
+	conn.Write(response.Encode())
 }
 
 type Header struct {
@@ -135,8 +95,6 @@ func NewMessage(requestApiKey int16, requestApiVersion int16, correlationID int3
 func (m *Message) Marshal() []byte {
 	var reply []byte
 	reply = binary.BigEndian.AppendUint32(reply, uint32(m.sizeBytes)) // hardcode 0 size reply
-	// reply = binary.BigEndian.AppendUint16(reply, uint16(m.header.requestApiKey))
-	// reply = binary.BigEndian.AppendUint16(reply, uint16(m.header.requestApiVersion))
 	reply = binary.BigEndian.AppendUint32(reply, uint32(m.header.correlationID))
 	reply = append(reply, m.body...)
 
