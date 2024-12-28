@@ -17,7 +17,8 @@ func NewApiKeyVersionsResponse(header *RequestHeaderV2, body []byte) ApiKeyResp 
 	keys := []ApiKey{}
 	apiKey := NewApiKey(18, 0, 4, []byte{})
 	describeTopicPartitionsKey := NewApiKey(75, 0, 0, []byte{})
-	keys = append(keys, *apiKey, *describeTopicPartitionsKey)
+	fetchKey := NewApiKey(1, 16, 16, []byte{})
+	keys = append(keys, *apiKey, *describeTopicPartitionsKey, *fetchKey)
 	ar := new(ApiVersionsResponse)
 	ar.Header = &ResponseHeaderV0{}
 	ar.Header.CorrelationID = header.CorrelationID
