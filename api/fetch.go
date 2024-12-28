@@ -25,19 +25,21 @@ type FetchRequest struct {
 
 func (f *FetchRequest) DecodeRequest(body []byte) error {
 	buff := bytes.NewBuffer(body)
-	binary.Read(buff, binary.BigEndian, f.MaxWaitMs)
-	binary.Read(buff, binary.BigEndian, f.MinBytes)
-	binary.Read(buff, binary.BigEndian, f.MaxBytes)
-	binary.Read(buff, binary.BigEndian, f.IsolationLevel)
-	binary.Read(buff, binary.BigEndian, f.SessionId)
-	binary.Read(buff, binary.BigEndian, f.SessionEpoch)
+	binary.Read(buff, binary.BigEndian, &f.MaxWaitMs)
+	binary.Read(buff, binary.BigEndian, &f.MinBytes)
+	binary.Read(buff, binary.BigEndian, &f.MaxBytes)
+	binary.Read(buff, binary.BigEndian, &f.IsolationLevel)
+	binary.Read(buff, binary.BigEndian, &f.SessionId)
+	binary.Read(buff, binary.BigEndian, &f.SessionEpoch)
 	topicArrLen, err := binary.ReadUvarint(buff)
 	if err != nil {
 		return errors.Wrap(err, "error parsing fetch topic request length")
 	}
 	for i := 0; i < int(topicArrLen)-1; i++ {
 		t := new(FetchRequestTopic)
-		binary.Read(buff, binary.BigEndian, t)
+		binary.Read(buff, binary.BigEndian, &t.TopicId)
+		binary.Read(buff, binary.BigEndian, t.Partitions) // BUG read to Partitions needs to be rewritten, as it is an array
+		t.TagBuffer = []byte{}
 		f.Topics = append(f.Topics, t)
 	}
 	fogrottenTopicArrLen, err := binary.ReadUvarint(buff)
@@ -52,6 +54,8 @@ func (f *FetchRequest) DecodeRequest(body []byte) error {
 	binary.Read(buff, binary.BigEndian, &f.RackId)
 	buff.ReadByte()
 	f.TagBuffer = []byte{}
+	fmt.Printf("After encoding request HEAder: %+v\n", f.Header)
+	fmt.Printf("After encoding request Body: %+v\n", f)
 	return nil
 }
 
@@ -93,7 +97,14 @@ type FetchRespVal struct {
 }
 
 func (f *FetchRespVal) Encode() []byte {
-	return nil
+	buff := new(bytes.Buffer)
+	buff.Write(f.TopicId[:])
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(f.Partitions)+1)))
+	for _, r := range f.Partitions {
+		buff.Write(r.Encode())
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(f.TagBuffer))))
+	return buff.Bytes()
 }
 
 type FetchResponsePartition struct {
@@ -108,10 +119,38 @@ type FetchResponsePartition struct {
 	TagBuffer            []byte
 }
 
+func (fp *FetchResponsePartition) Encode() []byte {
+	// TODO to implement
+	buff := new(bytes.Buffer)
+
+	binary.Write(buff, binary.BigEndian, fp.PartitionIndex)
+	binary.Write(buff, binary.BigEndian, fp.ErrorCode)
+	binary.Write(buff, binary.BigEndian, fp.HighWatermark)
+	binary.Write(buff, binary.BigEndian, fp.LastStableOffset)
+	binary.Write(buff, binary.BigEndian, fp.LogStartOffset)
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(fp.AbortedTransactions)+1)))
+	for _, a := range fp.AbortedTransactions {
+		buff.Write(a.Encode())
+	}
+	binary.Write(buff, binary.BigEndian, fp.PreferredReadReplica)
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(fp.Records)+1)))
+	// buff.Write(fp.Records)
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(fp.TagBuffer))))
+	// buff.Write(fp.TagBuffer)
+
+	return buff.Bytes()
+}
+
 type AbortedTransaction struct {
 	ProducerId  int64
 	FirstOffset int64
 	TagBuffer   []byte
+}
+
+func (a *AbortedTransaction) Encode() []byte {
+	buff := new(bytes.Buffer)
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(a.TagBuffer))))
+	return buff.Bytes()
 }
 
 func NewFetchResponse(header *RequestHeaderV2, body []byte) ApiKeyResp {
@@ -130,8 +169,25 @@ func NewFetchResponse(header *RequestHeaderV2, body []byte) ApiKeyResp {
 	res.ThrottleTimeMs = 0
 	res.ErrorCode = ErrNoError
 	res.SessionId = 0
-	if len(req.Topics) == 0 {
-		res.Responses = []*FetchRespVal{}
+	res.Responses = []*FetchRespVal{}
+	if len(req.Topics) > 0 {
+		fmt.Println("DO we even get here")
+		for _, t := range req.Topics {
+			frv := new(FetchRespVal)
+
+			frv.TopicId = t.TopicId
+			fmt.Printf("TopicID in request: %v\n", t.TopicId)
+			fmt.Printf("TopicID in frv: %v\n", frv.TopicId)
+			// TODO get partitions from file. for now just return error partition
+			p := new(FetchResponsePartition)
+			p.PartitionIndex = 0
+			p.ErrorCode = ErrUnknownTopicId
+			p.TagBuffer = []byte{}
+			frv.Partitions = append(frv.Partitions, p)
+
+			frv.TagBuffer = []byte{}
+			res.Responses = append(res.Responses, frv)
+		}
 	}
 	res.TagBuffer = []byte{}
 	return res
@@ -148,7 +204,7 @@ func (f *FetchResponse) EncodeResponse() []byte {
 	for _, r := range f.Responses {
 		buff.Write(r.Encode())
 	}
-	buff.Write(binary.AppendUvarint([]byte{}, uint64(0)))
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(f.TagBuffer))))
 	resBuff := []byte{}
 	resBuff = binary.BigEndian.AppendUint32(resBuff, uint32(buff.Len()))
 	resBuff = append(resBuff, buff.Bytes()...)

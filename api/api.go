@@ -45,6 +45,7 @@ var (
 	ErrNoError               ErrorCode = 0
 	ErrUnknownTopic          ErrorCode = 3
 	ErrUnsupportedApiVersion ErrorCode = 35
+	ErrUnknownTopicId        ErrorCode = 100
 )
 
 type ApiKeyResp interface {
