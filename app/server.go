@@ -44,20 +44,10 @@ func handleConnection(conn net.Conn) {
 		if err != nil {
 			panic(err)
 		}
-		// fmt.Printf("Header: %+v\n", request)
 
-		// response := api.NewApiKeyVersionsResponse(requestHeader)
 		respFunc := api.ApiKeysMap[request.Header.RequestApiKey]
 		response := respFunc(request.Header, request.Body)
 		fmt.Printf("GET response %+v\n", response)
 		conn.Write(response.EncodeResponse())
 	}
 }
-
-// func DecodeRequest(buff *bytes.Buffer) {
-// 	var messageSize int32
-// 	binary.Read(buff, binary.BigEndian, &messageSize)
-// 	fmt.Printf("message size is %d\n", messageSize)
-
-// 	// api.DecodeRequestForSpecifiedVersion(buff)
-// }

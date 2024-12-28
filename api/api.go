@@ -5,9 +5,6 @@ import (
 	"encoding/binary"
 )
 
-//	type ApiKey interface {
-//		Encode() []byte
-//	}
 type ApiKey struct {
 	Key        int16
 	MinVersion int16
@@ -37,19 +34,10 @@ func (key *ApiKey) Encode() []byte {
 type NullableString string
 
 func (ns NullableString) FromBytes(b []byte) NullableString {
-	// r := bytes.NewReader(b)
-	// strBytes := make([]byte, len(b))
-	// binary.Read(r, binary.BigEndian, strBytes)
 	return NullableString(string(b))
 }
 
 type TagBuffer []byte
-
-// func NewTadBuffer(b []byte) *TagBuffer {
-// 	return &TagBuffer{
-// 		TagBuffer: b,
-// 	}
-// }
 
 type ErrorCode int16
 
@@ -66,6 +54,7 @@ type ApiKeyResp interface {
 type ResponseFunc func(*RequestHeaderV2, []byte) ApiKeyResp
 
 var ApiKeysMap map[int16]ResponseFunc = map[int16]ResponseFunc{
+	1:  NewFetchResponse,
 	18: NewApiKeyVersionsResponse,
 	75: NewDescribeTopicPartitionsResponse,
 }

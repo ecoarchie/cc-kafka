@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 )
 
 type Request struct {
@@ -71,7 +70,6 @@ func DecodeRequestForSpecifiedVersion(b []byte) (*Request, error) {
 	if tagBuffLen == 0 {
 		tagBuffer = []byte{}
 	}
-	fmt.Printf("rest of the buffer: %+v\n", buff.Bytes())
 
 	header := &RequestHeaderV2{
 		RequestApiKey:     requestApiKey,

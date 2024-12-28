@@ -81,13 +81,13 @@ func NewFeatureValue(b *bufio.Reader) *FeatureLevelValue {
 
 // type 2
 type TopicValue struct {
-	Name              string
-	Uuid              uuid.UUID
+	Name              []byte
+	Uuid              [16]byte
 	TaggedFieldsCount uint64
 }
 
 func (t TopicValue) GetName() string {
-	return t.Name
+	return string(t.Name)
 }
 
 func (t TopicValue) GetUuid() uuid.UUID {
@@ -97,16 +97,12 @@ func (t TopicValue) GetUuid() uuid.UUID {
 func NewTopicValue(b *bufio.Reader) *TopicValue {
 	len, _ := binary.ReadUvarint(b)
 	t := new(TopicValue)
-	na := make([]byte, len-1)
-	b.Read(na)
-	t.Name = string(na)
-	uuidB := make([]byte, 16)
-	var err error
-	err = binary.Read(b, binary.BigEndian, uuidB)
+	t.Name = make([]byte, len-1)
+	b.Read(t.Name)
+	err := binary.Read(b, binary.BigEndian, t.Uuid[:])
 	if err != nil {
 		fmt.Println("Error decoding uuid as bigendian", err)
 	}
-	t.Uuid, err = uuid.FromBytes(uuidB)
 	if err != nil {
 		fmt.Println("Errpr parsing uuid", err)
 	}
@@ -134,8 +130,7 @@ func (p PartitionValue) GetName() string {
 }
 
 func (p *PartitionValue) GetTopicId() uuid.UUID {
-	t, _ := uuid.FromBytes(p.TopicUuid[:])
-	return t
+	return p.TopicUuid
 }
 
 func NewPartitionValue(b *bufio.Reader) *PartitionValue {
@@ -185,7 +180,6 @@ func NewPartitionValue(b *bufio.Reader) *PartitionValue {
 }
 
 func FindPartitionsForTopic(name string) (uuid.UUID, []*Partition) {
-	var topicId uuid.UUID
 	logName := "/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log"
 	fd, err := os.Open(logName)
 	if err != nil {
@@ -193,6 +187,7 @@ func FindPartitionsForTopic(name string) (uuid.UUID, []*Partition) {
 	}
 	defer fd.Close()
 
+	var topicId uuid.UUID
 	rd := bufio.NewReader(fd)
 	batches := make([]*RecordBatch, 0)
 	for {
@@ -219,7 +214,7 @@ func FindPartitionsForTopic(name string) (uuid.UUID, []*Partition) {
 	var partitions []*Partition
 	for _, batch := range batches {
 		for _, rec := range batch.RecordsBytes {
-			record := parseRecord(rec)
+			record := parseRecordBytes(rec)
 			if record.ValueHeader.Type == 2 {
 				value := record.Value.(*TopicValue)
 				if value.GetName() == name {
@@ -246,7 +241,7 @@ func FindPartitionsForTopic(name string) (uuid.UUID, []*Partition) {
 	return topicId, partitions
 }
 
-func parseRecord(rec []byte) *Record {
+func parseRecordBytes(rec []byte) *Record {
 	buf := bufio.NewReader(bytes.NewReader(rec))
 	r := new(Record)
 	binary.Read(buf, binary.BigEndian, &r.Attributes)
