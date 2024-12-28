@@ -21,7 +21,7 @@ func (r *DescribeTopicPartitionsRequest) DecodeRequest(body []byte) error {
 	buff := bytes.NewBuffer(body)
 	topicArrLen, err := binary.ReadUvarint(buff)
 	if err != nil {
-		return errors.Wrap(err, "error readint topic array length")
+		return errors.Wrap(err, "error reading topic array length")
 	}
 	topicArrLen -= 1
 	if topicArrLen == 0 {
@@ -41,13 +41,13 @@ func (r *DescribeTopicPartitionsRequest) DecodeRequest(body []byte) error {
 			}
 			t.Name = string(name)
 
+			buff.ReadByte() // read length of tagged fields array. is 0
 			t.TagBuffer = []byte{}
 			r.Topics[i] = &t
 		}
 	}
-	// r.Topics = topics
 
-	err = binary.Read(buff, binary.BigEndian, r.ResponsePartitionLimit)
+	err = binary.Read(buff, binary.BigEndian, &r.ResponsePartitionLimit)
 	if err != nil {
 		return errors.Wrap(err, "error reading response partition limit")
 	}
@@ -85,8 +85,16 @@ func (rt *ResponseTopic) Encode() []byte {
 	}
 
 	binary.Write(buff, binary.BigEndian, id)
-	binary.Write(buff, binary.LittleEndian, rt.IsInternal)
+	if rt.IsInternal {
+		binary.Write(buff, binary.BigEndian, byte(1))
+	} else {
+		binary.Write(buff, binary.BigEndian, byte(0))
+	}
+
 	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(rt.Patritions)+1)))
+	for _, p := range rt.Patritions {
+		buff.Write(p.Encode())
+	}
 	binary.Write(buff, binary.BigEndian, rt.TopicAuthorizedOperations)
 	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(rt.TagBuffer))))
 	return buff.Bytes()
@@ -94,14 +102,45 @@ func (rt *ResponseTopic) Encode() []byte {
 
 type Partition struct {
 	ErrorCode              ErrorCode
-	PartitionIndex         int32
-	LeaderId               int32
-	LeaderEpoch            int32
-	ReplicaNodes           int32
-	IsrNodes               int32
-	EligibleLeaderReplicas int32
-	LastKnownIlr           int32
-	OfflineReplicas        int32
+	PartitionIndex         [4]byte
+	LeaderId               [4]byte
+	LeaderEpoch            [4]byte
+	ReplicaNodes           [][4]byte
+	IsrNodes               [][4]byte
+	EligibleLeaderReplicas [][4]byte
+	LastKnownIlr           [][4]byte
+	OfflineReplicas        [][4]byte
+	TagBuffer              []byte
+}
+
+func (p Partition) Encode() []byte {
+	buff := new(bytes.Buffer)
+	binary.Write(buff, binary.BigEndian, p.ErrorCode)
+	buff.Write(p.PartitionIndex[:])
+	buff.Write(p.LeaderId[:])
+	buff.Write(p.LeaderEpoch[:])
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.ReplicaNodes)+1)))
+	for _, n := range p.ReplicaNodes {
+		buff.Write(n[:])
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.IsrNodes)+1)))
+	for _, n := range p.IsrNodes {
+		buff.Write(n[:])
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.EligibleLeaderReplicas)+1)))
+	for _, n := range p.EligibleLeaderReplicas {
+		buff.Write(n[:])
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.LastKnownIlr)+1)))
+	for _, n := range p.LastKnownIlr {
+		buff.Write(n[:])
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.OfflineReplicas)+1)))
+	for _, n := range p.OfflineReplicas {
+		buff.Write(n[:])
+	}
+	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(p.TagBuffer))))
+	return buff.Bytes()
 }
 
 type RequestTopic struct {
@@ -112,16 +151,15 @@ type RequestTopic struct {
 type Cursor []byte
 
 func NullCursor() Cursor {
-	var c []byte
-	return append(c, 0xff)
+	return []byte{0xff}
 }
 
 func NewDescribeTopicPartitionsResponse(header *RequestHeaderV2, body []byte) ApiKeyResp {
 	req := new(DescribeTopicPartitionsRequest)
 	req.Header = header
-	var err error
-	err = req.DecodeRequest(body)
+	err := req.DecodeRequest(body)
 	if err != nil {
+		fmt.Println("Here in decode request error")
 		fmt.Println(err)
 	}
 	res := new(DescribeTopicPartitionsResponse)
@@ -133,15 +171,17 @@ func NewDescribeTopicPartitionsResponse(header *RequestHeaderV2, body []byte) Ap
 	reqTopic := req.Topics[0]
 
 	topic := new(ResponseTopic)
-	topic.ErrorCode = ErrUnknownTopic
-	topic.Name = reqTopic.Name
-	topic.TopicId, err = uuid.Parse("00000000-0000-0000-0000-000000000000")
-	if err != nil {
-		fmt.Println("errorparsing uuid ")
-		return nil
+	topicId, partitions := FindPartitionsForTopic(reqTopic.Name)
+	if topicId == uuid.Nil {
+		topic.ErrorCode = ErrUnknownTopic
+		topic.Patritions = []*Partition{}
+	} else {
+		topic.Patritions = partitions
 	}
+
+	topic.Name = reqTopic.Name
+	topic.TopicId = topicId
 	topic.IsInternal = false
-	topic.Patritions = []*Partition{}
 	topic.TopicAuthorizedOperations = 3576
 	topic.TagBuffer = []byte{}
 	res.Topics = append(res.Topics, topic)

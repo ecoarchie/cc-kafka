@@ -44,7 +44,7 @@ func handleConnection(conn net.Conn) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Header: %+v\n", request)
+		// fmt.Printf("Header: %+v\n", request)
 
 		// response := api.NewApiKeyVersionsResponse(requestHeader)
 		respFunc := api.ApiKeysMap[request.Header.RequestApiKey]
