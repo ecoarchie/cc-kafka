@@ -168,23 +168,25 @@ func NewDescribeTopicPartitionsResponse(header *RequestHeaderV2, body []byte) Ap
 		TagBuffer:     []byte{},
 	}
 	res.ThrottleTime = 0
-	reqTopic := req.Topics[0]
 
-	topic := new(ResponseTopic)
-	topicId, partitions := FindPartitionsForTopic(reqTopic.Name)
-	if topicId == uuid.Nil {
-		topic.ErrorCode = ErrUnknownTopic
-		topic.Patritions = []*Partition{}
-	} else {
-		topic.Patritions = partitions
+	for _, reqTopic := range req.Topics {
+		topic := new(ResponseTopic)
+		topicId, partitions := FindPartitionsForTopic(reqTopic.Name)
+		if topicId == uuid.Nil {
+			topic.ErrorCode = ErrUnknownTopic
+			topic.Patritions = []*Partition{}
+		} else {
+			topic.Patritions = partitions
+		}
+
+		topic.Name = reqTopic.Name
+		topic.TopicId = topicId
+		topic.IsInternal = false
+		topic.TopicAuthorizedOperations = 3576
+		topic.TagBuffer = []byte{}
+		res.Topics = append(res.Topics, topic)
+
 	}
-
-	topic.Name = reqTopic.Name
-	topic.TopicId = topicId
-	topic.IsInternal = false
-	topic.TopicAuthorizedOperations = 3576
-	topic.TagBuffer = []byte{}
-	res.Topics = append(res.Topics, topic)
 	return res
 }
 
