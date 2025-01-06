@@ -35,24 +35,52 @@ func (f *FetchRequest) DecodeRequest(body []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "error parsing fetch topic request length")
 	}
+	fmt.Printf("topic arr length: %v\n", topicArrLen)
 	for i := 0; i < int(topicArrLen)-1; i++ {
 		t := new(FetchRequestTopic)
 		binary.Read(buff, binary.BigEndian, &t.TopicId)
-		binary.Read(buff, binary.BigEndian, t.Partitions) // BUG read to Partitions needs to be rewritten, as it is an array
+		partitionLen, err := binary.ReadUvarint(buff)
+		fmt.Printf("partition length: %v\n", partitionLen)
+		if err != nil {
+			return errors.Wrap(err, "error parsing fetch partition array request length")
+		}
+
+		for i := 0; i < int(partitionLen)-1; i++ {
+			partition := new(FetchRequestPartition)
+			binary.Read(buff, binary.BigEndian, &partition.Partition)
+			binary.Read(buff, binary.BigEndian, &partition.CurrentLeaderEpoch)
+			binary.Read(buff, binary.BigEndian, &partition.FetchOffset)
+			binary.Read(buff, binary.BigEndian, &partition.LastFetchedEpoch)
+			binary.Read(buff, binary.BigEndian, &partition.LogStartOffset)
+			binary.Read(buff, binary.BigEndian, &partition.PartitionMacBytes)
+			partition.TagBuffer = []byte{}
+			t.Partitions = append(t.Partitions, partition)
+		}
 		t.TagBuffer = []byte{}
 		f.Topics = append(f.Topics, t)
 	}
-	fogrottenTopicArrLen, err := binary.ReadUvarint(buff)
+	forgottenTopicArrLen, err := binary.ReadUvarint(buff)
+	fmt.Printf("forgotten topics length: %v\n", forgottenTopicArrLen)
 	if err != nil {
 		return errors.Wrap(err, "error parsing fetch forgotten topic request length")
 	}
-	for i := 0; i < int(fogrottenTopicArrLen)-1; i++ {
+	for i := 0; i < int(forgottenTopicArrLen)-1; i++ {
 		t := new(ForgottenTopic)
 		binary.Read(buff, binary.BigEndian, t)
 		f.ForgottenTopicsData = append(f.ForgottenTopicsData, t)
 	}
-	binary.Read(buff, binary.BigEndian, &f.RackId)
-	buff.ReadByte()
+	rackIdLen, err := binary.ReadUvarint(buff)
+	if err != nil {
+		return errors.Wrap(err, "error parsing fetch racklen request length")
+	}
+	fmt.Printf("rackId length: %v\n", rackIdLen)
+	if rackIdLen-1 == 0 {
+		f.RackId = ""
+	}
+	_, err = buff.ReadByte()
+	if err != nil {
+		fmt.Printf("error parsing last byte for tagged field len: %v\n", err)
+	}
 	f.TagBuffer = []byte{}
 	fmt.Printf("After encoding request HEAder: %+v\n", f.Header)
 	fmt.Printf("After encoding request Body: %+v\n", f)
@@ -72,7 +100,7 @@ type ForgottenTopic struct {
 }
 
 type FetchRequestPartition struct {
-	Partition          [4]byte
+	Partition          int32
 	CurrentLeaderEpoch [4]byte
 	FetchOffset        [8]byte
 	LastFetchedEpoch   [4]byte
@@ -115,7 +143,7 @@ type FetchResponsePartition struct {
 	LogStartOffset       int64
 	AbortedTransactions  []*AbortedTransaction
 	PreferredReadReplica int32
-	Records              []byte
+	Records              [][]byte
 	TagBuffer            []byte
 }
 
@@ -134,9 +162,10 @@ func (fp *FetchResponsePartition) Encode() []byte {
 	}
 	binary.Write(buff, binary.BigEndian, fp.PreferredReadReplica)
 	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(fp.Records)+1)))
-	// buff.Write(fp.Records)
+	for _, r := range fp.Records {
+		buff.Write(r)
+	}
 	buff.Write(binary.AppendUvarint([]byte{}, uint64(len(fp.TagBuffer))))
-	// buff.Write(fp.TagBuffer)
 
 	return buff.Bytes()
 }
@@ -157,6 +186,7 @@ func NewFetchResponse(header *RequestHeaderV2, body []byte) ApiKeyResp {
 	req := new(FetchRequest)
 	req.Header = header
 	err := req.DecodeRequest(body)
+	// fmt.Printf("fetch request: %+v\n", req.Topics[0].Partitions[0])
 	if err != nil {
 		fmt.Println("Here in decode request error")
 		fmt.Println(err)
@@ -176,12 +206,15 @@ func NewFetchResponse(header *RequestHeaderV2, body []byte) ApiKeyResp {
 			frv := new(FetchRespVal)
 
 			frv.TopicId = t.TopicId
-			fmt.Printf("TopicID in request: %v\n", t.TopicId)
-			fmt.Printf("TopicID in frv: %v\n", frv.TopicId)
 			// TODO get partitions from file. for now just return error partition
 			p := new(FetchResponsePartition)
+			isValidTopicId, batchRecs := FindBatchesForTopicRequest(t)
+			if !isValidTopicId {
+				p.ErrorCode = ErrUnknownTopicId
+			} else {
+				p.Records = batchRecs
+			}
 			p.PartitionIndex = 0
-			p.ErrorCode = ErrUnknownTopicId
 			p.TagBuffer = []byte{}
 			frv.Partitions = append(frv.Partitions, p)
 
