@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/google/uuid"
 )
@@ -241,6 +242,7 @@ func FindBatchesForTopicRequest(t *FetchRequestTopic) (bool, [][]byte) {
 	}
 	defer fd.Close()
 
+	fmt.Printf("topix partitions: %+v\n", t.Partitions[0])
 	isTopicExist := false
 	batches := getRecordBatches(fd)
 	partitionDirNames := []string{}
@@ -254,7 +256,8 @@ func FindBatchesForTopicRequest(t *FetchRequestTopic) (bool, [][]byte) {
 					isTopicExist = true
 					topicName := value.GetName()
 					for _, p := range t.Partitions {
-						partitionDirNames = append(partitionDirNames, partitionDirName+topicName+"-"+string(p.Partition)+"/")
+						pStr := strconv.Itoa(int(p.Partition))
+						partitionDirNames = append(partitionDirNames, partitionDirName+topicName+"-"+pStr+"/")
 					}
 				}
 			}
